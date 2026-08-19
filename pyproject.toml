@@ -1,0 +1,25 @@
+[project]
+name = "cyberai-study-agent"
+version = "0.1.0"
+description = "AI study companion agent for LM Cybersecurity & AI coursework"
+requires-python = ">=3.11"
+dependencies = [
+    "google-genai",
+    "python-dotenv",
+    "pypdf",
+    "chromadb",
+    "sentence-transformers",
+    "typer",
+]
+
+[project.scripts]
+cyberai-agent = "cyberai_agent.cli:app"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+license = { text = "MIT" }
