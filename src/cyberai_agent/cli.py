@@ -139,7 +139,8 @@ def chat(
 
     typer.echo(
         f"Ready. {agent.vectorstore.count()} chunks indexed. "
-        "Type your question (empty line or 'exit' to quit).\n"
+        "Type your question, '/reset' to clear history, "
+        "or empty line / 'exit' to quit.\n"
     )
 
     while True:
@@ -155,9 +156,20 @@ def chat(
             typer.echo("Bye.")
             break
 
-        answer = agent.ask(question, top_k=top_k)
-        typer.echo(f"\nAgent:\n{answer}\n")
+        # Support in-session commands prefixed with a slash. Currently
+        # only `/reset` is defined: it clears the conversation history
+        # so the next question is treated as a fresh start with no
+        # follow-up context.
+        if question.lower() == "/reset":
+            agent.conversation.reset()
+            typer.echo("Conversation reset.\n")
+            continue
 
+        typer.echo("Thinking...", nl=False)
+        answer = agent.ask(question, top_k=top_k)
+        # Overwrite the "Thinking..." line before printing the answer.
+        typer.echo("\r" + " " * 20 + "\r", nl=False)
+        typer.echo(f"Agent:\n{answer}\n")
 
 @app.command()
 def stats():

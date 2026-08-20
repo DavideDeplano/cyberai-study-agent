@@ -66,35 +66,46 @@ class VectorStore:
     """
 
     def __init__(
-        self,
-        db_path: Path = DEFAULT_DB_PATH,
-        collection_name: str = DEFAULT_COLLECTION,
-        embedder: Embedder | None = None,
+    self,
+    db_path: Path = DEFAULT_DB_PATH,
+    collection_name: str = DEFAULT_COLLECTION,
+    embedder: Embedder | None = None,
     ):
         """Open (or create) a persistent Chroma collection.
+
+        The embedder is loaded lazily: it is not instantiated in the
+        constructor, only on first access via the `embedder` property.
+        This lets read-only callers (for example the `stats` CLI
+        command) open the store without paying the multi-second cost
+        of loading the sentence-transformer model.
 
         Args:
             db_path: Directory where Chroma will store its files.
             collection_name: Logical name of the collection inside the DB.
-            embedder: Embedder to use. If None, a default one is built,
-                which triggers a model load and takes a few seconds.
+            embedder: Preconstructed embedder to use. If None, one is
+                built the first time it is needed.
         """
         db_path.mkdir(parents=True, exist_ok=True)
 
-        # `anonymized_telemetry=False` opts out of Chroma's usage pings.
         self.client = chromadb.PersistentClient(
             path=str(db_path),
             settings=Settings(anonymized_telemetry=False),
         )
-
-        # `hnsw:space="cosine"` selects cosine distance for the HNSW index.
-        # It pairs correctly with the L2-normalized embeddings produced by
-        # the Embedder and gives distances in [0, 2] where 0 == identical.
         self.collection = self.client.get_or_create_collection(
             name=collection_name,
             metadata={"hnsw:space": "cosine"},
         )
-        self.embedder = embedder or Embedder()
+        # Cached embedder; None means "not yet loaded". Access via the
+        # `embedder` property so loading is transparent to callers.
+        self._embedder: Embedder | None = embedder
+
+    @property
+    def embedder(self) -> Embedder:
+        """Return the embedder, loading it on first access."""
+        if self._embedder is None:
+            self._embedder = Embedder()
+        return self._embedder
+    
 
     def add_chunks(self, chunks: list[Chunk]) -> int:
         """Embed a batch of chunks and upsert them into the collection.
