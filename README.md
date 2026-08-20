@@ -168,7 +168,7 @@ cyberai-study-agent/
 
 Planned iterations, in rough priority order:
 
-- [ ] Conversational memory (multi-turn context within a chat session)
+- [x] Conversational memory (multi-turn context within a session, with automatic query rewriting)
 - [ ] Quiz and flashcard generation from ingested material
 - [ ] Spaced-repetition tracking (SM-2 or FSRS)
 - [ ] Per-course collections and metadata filtering at query time
