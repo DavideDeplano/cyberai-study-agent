@@ -53,14 +53,16 @@ A Master's programme generates a large corpus of study material — dozens of PD
         query  ────────┤
                        ▼
                 ┌─────────────┐        ┌──────────────┐
-                │   agent.py  │  ────▶ │ Gemini 2.5   │  ──▶ cited answer
-                │  (RAG loop) │        │    Flash     │
+                │   agent.py  │  ────▶ │              │  ──▶ cited answer
+                │  (RAG loop) │        │  Gemini 2.5  │
+                ├─────────────┤  ────▶ │     Flash    │  ──▶ quiz / flashcards
+                │   quiz.py   │        │              │      (JSON)
                 └─────────────┘        └──────────────┘
                        │
                        ▼
                 ┌─────────────┐
-                │   cli.py    │  ──▶ `cyberai-agent {ingest,chat,stats}`
-                └─────────────┘
+                │   cli.py    │  ──▶ `cyberai-agent {ingest,chat,quiz,
+                └─────────────┘                      flashcards,stats}`
 ```
 
 Each module has a single responsibility and can be exercised in isolation via its `__main__` block during development.
@@ -125,6 +127,41 @@ cyberai-agent chat
 
 Opens a REPL. The embedding model and the Gemini client are initialised once at startup, so every subsequent question only pays for retrieval and generation. Type `exit`, `quit`, or an empty line to leave.
 
+**Generate a quiz**
+
+```bash
+cyberai-agent quiz "adversarial examples"
+cyberai-agent quiz "malware detection" --n 10        # 10 questions (default 5)
+cyberai-agent quiz "TLS handshake" --show-answers    # answers under each question
+```
+
+Multiple-choice questions built from the indexed material, each carrying
+the source and page it came from. By default the answer key is printed
+after the full question list, so the quiz can be attempted before
+checking; `--show-answers` collapses each answer under its question,
+which is the better layout for reviewing rather than self-testing.
+
+**Generate flashcards**
+
+```bash
+cyberai-agent flashcards "malware detection"
+cyberai-agent flashcards "adversarial ML" --n 15         # 15 cards (default 10)
+cyberai-agent flashcards "network security" --csv deck.csv
+```
+
+`--csv` writes the deck as `front,back,source,page` — the column order
+Anki imports without hand-editing.
+
+Both commands accept `--top-k` (default 12) to control how many chunks
+are retrieved as grounding. It is higher than the 5 used for answering
+because a quiz should span a topic rather than rephrase a single passage
+n times.
+
+`--n` is a ceiling, not a guarantee: if the retrieved excerpts do not
+support the requested number of items, fewer come back. That is
+deliberate — padding a deck means inventing material the PDFs do not
+cover, which is exactly what a study tool must not do.
+
 **Inspect the index**
 
 ```bash
@@ -138,6 +175,7 @@ cyberai-agent stats
 - **The e5 embedding model uses asymmetric prefixes** (`passage: ` for documents, `query: ` for queries). Both are handled inside the `Embedder` wrapper so callers cannot forget them and degrade retrieval quality by accident.
 - **Chunk identity is deterministic**: the store key is `f"{source}::{chunk_id}"`, which makes upsert-based re-ingestion trivial and keeps ids stable across runs.
 - **The CLI amortises model loading**: `chat` builds the agent once and reuses it for every question, avoiding the 3–5-second embedding-model startup that dominates one-shot invocations used during development.
+- **Generated study items refuse to pad**: the quiz and flashcard prompts are told to return fewer items rather than invent material when the retrieved excerpts run thin. A hallucinated answer in a chat is a nuisance; a hallucinated quiz answer teaches the student something false and gets rehearsed.
 - **The vector store uses cosine distance** paired with L2-normalised embeddings, so distances are directly comparable across queries and lie in a predictable `[0, 2]` range.
 
 ## Project structure
@@ -151,6 +189,7 @@ cyberai-study-agent/
 │       ├── embeddings.py      # sentence-transformers wrapper
 │       ├── vectorstore.py     # ChromaDB wrapper
 │       ├── agent.py           # RAG loop + Gemini client
+│       ├── quiz.py            # quiz and flashcard generation
 │       └── cli.py             # Typer CLI entry point
 ├── data/
 │   ├── pdfs/                  # study PDFs (gitignored)
@@ -169,7 +208,7 @@ cyberai-study-agent/
 Planned iterations, in rough priority order:
 
 - [x] Conversational memory (multi-turn context within a session, with automatic query rewriting)
-- [ ] Quiz and flashcard generation from ingested material
+- [x] Quiz and flashcard generation from ingested material (CSV export for Anki)
 - [ ] Spaced-repetition tracking (SM-2 or FSRS)
 - [ ] Per-course collections and metadata filtering at query time
 - [ ] Better chunking (token-based; semantic splitters for structured slides)
@@ -183,4 +222,4 @@ Released under the [MIT License](LICENSE).
 
 ## Author
 
-**[Davide Deplano](https://github.com/DavideDeplano)** — Master's student in Cybersecurity and Artificial Intelligence at the University of Cagliari.
+**[Davide Deplano]

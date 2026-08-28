@@ -172,6 +172,147 @@ def chat(
         typer.echo(f"Agent:\n{answer}\n")
 
 @app.command()
+def quiz(
+    topic: str = typer.Argument(
+        ..., help="What to be quizzed on, in natural language."
+    ),
+    n: int = typer.Option(5, help="Number of questions to generate."),
+    top_k: int = typer.Option(
+        12, help="Number of chunks retrieved as grounding."
+    ),
+    show_answers: bool = typer.Option(
+        False,
+        "--show-answers",
+        help="Print answers inline instead of at the end.",
+    ),
+):
+    """Generate a multiple-choice quiz on a topic from the ingested material.
+
+    Answers are printed after the full question list by default, so the
+    quiz can be attempted before checking. `--show-answers` collapses
+    each answer under its question instead, which is the more useful
+    layout when reviewing rather than self-testing.
+
+    The model may return fewer questions than requested when the
+    retrieved material does not support that many — that is deliberate,
+    since padding a quiz means inventing content the PDFs do not cover.
+
+    Args:
+        topic: Retrieval query and subject of the questions.
+        n: How many questions to ask for.
+        top_k: How many chunks to retrieve as grounding.
+        show_answers: Interleave answers with questions.
+    """
+    from cyberai_agent.quiz import QuizGenerator
+
+    typer.echo("Loading study agent (this can take a few seconds)...")
+    generator = QuizGenerator()
+
+    if generator.vectorstore.count() == 0:
+        typer.echo(
+            "The vector store is empty. Run `cyberai-agent ingest <pdf>` first.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    typer.echo("Generating questions...\n")
+    questions = generator.generate_quiz(topic, n_questions=n, top_k=top_k)
+
+    if not questions:
+        typer.echo(
+            f"Nothing usable found on '{topic}'. Try a broader topic, "
+            "or check `cyberai-agent stats`.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    for i, q in enumerate(questions, 1):
+        typer.echo(f"{i}. {q.question}")
+        for j, option in enumerate(q.options):
+            typer.echo(f"   {chr(97 + j)}) {option}")
+        if show_answers:
+            typer.echo(
+                f"   -> {chr(97 + q.correct_index)}  {q.citation()}\n"
+                f"   {q.explanation}"
+            )
+        typer.echo("")
+
+    if not show_answers:
+        typer.echo("--- answers ---\n")
+        for i, q in enumerate(questions, 1):
+            typer.echo(
+                f"{i}. {chr(97 + q.correct_index)}  {q.citation()}\n"
+                f"   {q.explanation}\n"
+            )
+
+
+@app.command()
+def flashcards(
+    topic: str = typer.Argument(
+        ..., help="What to make flashcards about, in natural language."
+    ),
+    n: int = typer.Option(10, help="Number of cards to generate."),
+    top_k: int = typer.Option(
+        12, help="Number of chunks retrieved as grounding."
+    ),
+    csv: Path = typer.Option(
+        None,
+        "--csv",
+        help="Write the deck to a CSV file (front,back,source,page).",
+    ),
+):
+    """Generate a flashcard deck on a topic from the ingested material.
+
+    Prints the deck to the terminal, and optionally writes it to CSV.
+    The CSV column order matches what Anki expects on a plain import,
+    so a deck can go from PDF to review app without hand-editing.
+
+    Args:
+        topic: Retrieval query and subject of the cards.
+        n: How many cards to ask for.
+        top_k: How many chunks to retrieve as grounding.
+        csv: Destination file. If omitted, the deck is only printed.
+    """
+    import csv as csv_module
+
+    from cyberai_agent.quiz import QuizGenerator
+
+    typer.echo("Loading study agent (this can take a few seconds)...")
+    generator = QuizGenerator()
+
+    if generator.vectorstore.count() == 0:
+        typer.echo(
+            "The vector store is empty. Run `cyberai-agent ingest <pdf>` first.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    typer.echo("Generating cards...\n")
+    cards = generator.generate_flashcards(topic, n_cards=n, top_k=top_k)
+
+    if not cards:
+        typer.echo(
+            f"Nothing usable found on '{topic}'. Try a broader topic, "
+            "or check `cyberai-agent stats`.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    for i, card in enumerate(cards, 1):
+        typer.echo(f"{i}. {card.front}")
+        typer.echo(f"   {card.back}")
+        typer.echo(f"   {card.citation()}\n")
+
+    if csv is not None:
+        with csv.open("w", newline="", encoding="utf-8") as f:
+            writer = csv_module.writer(f)
+            writer.writerow(["front", "back", "source", "page"])
+            for card in cards:
+                writer.writerow([card.front, card.back, card.source, card.page])
+        typer.echo(f"{len(cards)} cards written to {csv}.")
+
+
+@app.command()
 def stats():
     """Print basic statistics about the current vector store.
 
