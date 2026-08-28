@@ -222,4 +222,4 @@ Released under the [MIT License](LICENSE).
 
 ## Author
 
-**[Davide Deplano]
+**Davide Deplano
