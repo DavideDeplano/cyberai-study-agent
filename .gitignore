@@ -8,3 +8,4 @@ data/pdfs/
 data/chroma/
 *.egg-info/
 .pytest_cache/
+deck.csv
