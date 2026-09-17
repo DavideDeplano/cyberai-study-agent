@@ -3,6 +3,7 @@ name = "cyberai-study-agent"
 version = "0.1.0"
 description = "AI study companion agent for LM Cybersecurity & AI coursework"
 requires-python = ">=3.11"
+license = { text = "MIT" }
 dependencies = [
     "google-genai",
     "python-dotenv",
@@ -21,5 +22,3 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-license = { text = "MIT" }
