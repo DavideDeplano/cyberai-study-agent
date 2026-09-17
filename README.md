@@ -107,7 +107,7 @@ The first ingestion or chat command will download the embedding model (~450 MB) 
 
 ## Usage
 
-Once installed, the package registers a `cyberai-agent` command with three subcommands.
+Once installed, the package registers a `cyberai-agent` command with five subcommands.
 
 **Ingest study material**
 
@@ -125,7 +125,7 @@ Ingestion is idempotent: re-running it on the same file overwrites the previousl
 cyberai-agent chat
 ```
 
-Opens a REPL. The embedding model and the Gemini client are initialised once at startup, so every subsequent question only pays for retrieval and generation. Type `exit`, `quit`, or an empty line to leave.
+Opens a REPL. The embedding model and the Gemini client are initialised once at startup, so every subsequent question only pays for retrieval and generation. Type `/reset` to clear the conversation history; type `exit`, `quit`, or an empty line to leave.
 
 **Generate a quiz**
 
@@ -189,6 +189,7 @@ cyberai-study-agent/
 │       ├── embeddings.py      # sentence-transformers wrapper
 │       ├── vectorstore.py     # ChromaDB wrapper
 │       ├── agent.py           # RAG loop + Gemini client
+│       ├── conversation.py    # multi-turn chat history
 │       ├── quiz.py            # quiz and flashcard generation
 │       └── cli.py             # Typer CLI entry point
 ├── data/
