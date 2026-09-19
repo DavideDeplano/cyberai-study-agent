@@ -42,6 +42,8 @@ class RetrievedChunk:
         source: Name of the source PDF file.
         page: 1-indexed page number in the source document.
         chunk_id: Progressive chunk index within the source document.
+        course: Course label carried by the chunk, empty when the document
+        was ingested without one.
         distance: Cosine distance to the query embedding, in [0, 2].
             Lower means more similar; values around 0.1–0.3 typically
             indicate strong topical relevance for e5-base embeddings.
@@ -50,6 +52,7 @@ class RetrievedChunk:
     source: str
     page: int
     chunk_id: int
+    course: str
     distance: float
 
 
@@ -133,7 +136,12 @@ class VectorStore:
 
         ids = [f"{c.source}::{c.chunk_id}" for c in chunks]
         metadatas = [
-            {"source": c.source, "page": c.page, "chunk_id": c.chunk_id}
+            {
+                "source": c.source, 
+                "page": c.page, 
+                "chunk_id": c.chunk_id, 
+                "course": c.course
+            }
             for c in chunks
         ]
 
@@ -145,7 +153,12 @@ class VectorStore:
         )
         return len(chunks)
 
-    def search(self, query: str, top_k: int = 5) -> list[RetrievedChunk]:
+    def search(
+        self,
+        query: str,
+        top_k: int = 5,
+        course: str | None = None,
+    ) -> list[RetrievedChunk]:
         """Return the `top_k` chunks most similar to the query.
 
         The query is embedded with the query-side prefix expected by the
@@ -156,10 +169,14 @@ class VectorStore:
             query: Natural-language search string.
             top_k: How many chunks to return. Larger values give the LLM
                 more context at the cost of prompt size and noise.
+            course: Restrict the search to one course label. `None`
+                searches everything, which is also what documents
+                ingested without a course fall back to.
 
         Returns:
             List of `RetrievedChunk` sorted by ascending distance
-            (most relevant first). Empty if the collection is empty.
+            (most relevant first). Empty if the collection is empty or
+            no chunk matches the filter.
         """
         query_embedding = self.embedder.embed_query(query)
 
@@ -168,6 +185,7 @@ class VectorStore:
         results = self.collection.query(
             query_embeddings=[query_embedding],
             n_results=top_k,
+            where={"course": course} if course else None,
         )
 
         retrieved: list[RetrievedChunk] = []
@@ -181,14 +199,35 @@ class VectorStore:
                 source=meta["source"],
                 page=meta["page"],
                 chunk_id=meta["chunk_id"],
+                # Material ingested before courses existed has no such
+                # key: default it rather than crashing on old data.
+                course=meta.get("course", ""),
                 distance=dist,
             ))
         return retrieved
 
-    def count(self) -> int:
-        """Return the total number of chunks currently stored."""
-        return self.collection.count()
+    def count(self, course: str | None = None) -> int:
+        """Return the number of chunks stored, optionally for one course.
 
+        Args:
+            course: Course label to count. `None` counts everything.
+        """
+        if course is None:
+            return self.collection.count()
+        return len(self.collection.get(where={"course": course})["ids"])
+
+    def courses(self) -> dict[str, int]:
+        """Return the number of stored chunks per course label.
+
+        Chunks ingested without a course are grouped under the empty
+        string. Used by the `stats` command to show what is indexed.
+        """
+        metas = self.collection.get(include=["metadatas"])["metadatas"]
+        counts: dict[str, int] = {}
+        for meta in metas:
+            label = meta.get("course", "") or ""
+            counts[label] = counts.get(label, 0) + 1
+        return counts
 
 if __name__ == "__main__":
     # Manual end-to-end smoke test:

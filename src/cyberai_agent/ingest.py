@@ -2,8 +2,8 @@
 
 This module is the first stage of the RAG pipeline. It converts raw PDF files
 into a list of `Chunk` objects that carry both text and provenance metadata
-(source file, page number, chunk id) so downstream retrieval can produce
-citable answers.
+(source file, page number, chunk id, course) so downstream retrieval can
+produce citable answers.
 """
 
 from pathlib import Path
@@ -19,14 +19,19 @@ class Chunk:
         text: Raw text content of the chunk.
         source: Name of the source PDF file (e.g. "Cap3.1MalwareDetection.pdf").
         page: 1-indexed page number where the chunk originated.
-        chunk_id: Progressive index of the chunk within the source document.
+                chunk_id: Progressive index of the chunk within the source document.
             Combined with `source` it forms a unique identifier in the vector
             store: `f"{source}::{chunk_id}"`.
+        course: Short label of the course the document belongs to, used to
+            filter retrieval to a single subject. Empty when unspecified,
+            which is also the value carried by material ingested before
+            courses existed.
     """
     text: str
     source: str
     page: int
     chunk_id: int
+    course: str = ""
 
 
 def extract_pages(pdf_path: Path) -> list[tuple[int, str]]:
@@ -91,6 +96,7 @@ def ingest_pdf(
     pdf_path: Path,
     chunk_size: int = 500,
     overlap: int = 50,
+    course: str = "",
 ) -> list[Chunk]:
     """Convert a PDF into a list of `Chunk` objects ready for embedding.
 
@@ -102,6 +108,7 @@ def ingest_pdf(
         pdf_path: Path to the PDF file to ingest.
         chunk_size: See `chunk_text`.
         overlap: See `chunk_text`.
+        course: Course label attached to every chunk of this document.
 
     Returns:
         Flat list of Chunk objects in reading order.
@@ -118,6 +125,7 @@ def ingest_pdf(
                 source=source,
                 page=page_num,
                 chunk_id=chunk_id,
+                course=course,
             ))
             chunk_id += 1
     return all_chunks

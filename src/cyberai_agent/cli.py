@@ -57,6 +57,9 @@ def ingest(
     overlap: int = typer.Option(
         50, help="Overlapping words between adjacent chunks."
     ),
+    course: str = typer.Option(
+        "", help="Course label attached to every chunk of these PDFs."
+    ),
 ):
     """Ingest one or more PDFs into the persistent vector store.
 
@@ -74,6 +77,8 @@ def ingest(
             exist and be readable before the function body runs.
         chunk_size: Forwarded to `ingest_pdf` (words per chunk).
         overlap: Forwarded to `ingest_pdf` (overlap in words).
+        course: Label stored with every chunk, used later to filter
+            retrieval to a single subject.
     """
     # Flatten the mixed list of files and directories into a plain list
     # of PDF paths, warning on anything that clearly does not belong.
@@ -96,7 +101,9 @@ def ingest(
     total_added = 0
     for pdf in pdf_files:
         typer.echo(f"Ingesting {pdf.name}...")
-        chunks = ingest_pdf(pdf, chunk_size=chunk_size, overlap=overlap)
+        chunks = ingest_pdf(
+            pdf, chunk_size=chunk_size, overlap=overlap, course=course
+        )
         added = store.add_chunks(chunks)
         total_added += added
         typer.echo(f"  {added} chunks added.")
@@ -111,6 +118,9 @@ def ingest(
 def chat(
     top_k: int = typer.Option(
         5, help="Number of chunks retrieved per question."
+    ),
+    course: str = typer.Option(
+        "", help="Restrict retrieval to one course label."
     ),
 ):
     """Start an interactive question-answering session with the agent.
@@ -128,29 +138,42 @@ def chat(
         top_k: Number of chunks to retrieve and pass to the model for
             each question. Higher values improve recall on broad
             questions but enlarge the prompt and can dilute focus.
+        course: Restrict retrieval to one course label.
     """
     typer.echo("Loading study agent (this can take a few seconds)...")
     agent = StudyAgent()
 
-    # Refuse to enter the REPL against an empty store: the agent would
-    # only ever produce its "no materials" fallback, which is confusing
-    # in an interactive session and better surfaced up-front.
-    if agent.vectorstore.count() == 0:
+    # Refuse to enter the REPL when nothing is retrievable: the agent
+    # would only ever produce its fallback message, which is confusing
+    # in an interactive session and better surfaced up-front. The count
+    # honours the active course filter.
+    available = agent.vectorstore.count(course=course or None)
+    if available == 0:
         typer.echo(
-            "The vector store is empty. Run `cyberai-agent ingest <pdf>` first.",
+            f"No chunks indexed for course '{course}'. "
+            "Run `cyberai-agent ingest <pdf> --course <name>` first."
+            if course
+            else "The vector store is empty. "
+                 "Run `cyberai-agent ingest <pdf>` first.",
             err=True,
         )
         raise typer.Exit(code=1)
 
+    scope = f" for course '{course}'" if course else ""
     typer.echo(
-        f"Ready. {agent.vectorstore.count()} chunks indexed. "
+        f"Ready. {available} chunks indexed{scope}. "
         "Type your question, '/reset' to clear history, "
         "or empty line / 'exit' to quit.\n"
     )
 
     while True:
         try:
-            question = typer.prompt("You", prompt_suffix="> ").strip()
+            # An explicit default makes an empty line a valid answer;
+            # without it Click re-prompts and the exit-on-empty path
+            # below is never reached.
+            question = typer.prompt(
+                "You", prompt_suffix="> ", default="", show_default=False
+            ).strip()
         except (EOFError, KeyboardInterrupt):
             # Ctrl-D on Unix, Ctrl-Z+Enter on Windows, or Ctrl-C at the
             # prompt: exit cleanly instead of surfacing the exception.
@@ -171,7 +194,7 @@ def chat(
             continue
 
         typer.echo("Thinking...", nl=False)
-        answer = agent.ask(question, top_k=top_k)
+        answer = agent.ask(question, top_k=top_k, course=course or None)
         # Overwrite the "Thinking..." line before printing the answer.
         typer.echo("\r" + " " * 20 + "\r", nl=False)
         typer.echo(f"Agent:\n{answer}\n")
@@ -190,6 +213,9 @@ def quiz(
         "--show-answers",
         help="Print answers inline instead of at the end.",
     ),
+    course: str = typer.Option(
+        "", help="Restrict retrieval to one course label."
+    ),
 ):
     """Generate a multiple-choice quiz on a topic from the ingested material.
 
@@ -207,6 +233,7 @@ def quiz(
         n: How many questions to ask for.
         top_k: How many chunks to retrieve as grounding.
         show_answers: Interleave answers with questions.
+        course: Restrict retrieval to one course label.
     """
     from cyberai_agent.quiz import QuizGenerator
 
@@ -221,7 +248,9 @@ def quiz(
         raise typer.Exit(code=1)
 
     typer.echo("Generating questions...\n")
-    questions = generator.generate_quiz(topic, n_questions=n, top_k=top_k)
+    questions = generator.generate_quiz(
+        topic, n_questions=n, top_k=top_k, course=course or None
+    )
 
     if not questions:
         typer.echo(
@@ -270,6 +299,9 @@ def flashcards(
         "--save",
         help="Add the cards to the spaced-repetition deck used by `review`.",
     ),
+    course: str = typer.Option(
+        "", help="Restrict retrieval to one course label."
+    ),
 ):
     """Generate a flashcard deck on a topic from the ingested material.
 
@@ -283,6 +315,7 @@ def flashcards(
         top_k: How many chunks to retrieve as grounding.
         csv: Destination file. If omitted, the deck is only printed.
         save: Whether to add the cards to the review deck.
+        course: Restrict retrieval to one course label.
     """
     import csv as csv_module
 
@@ -299,7 +332,9 @@ def flashcards(
         raise typer.Exit(code=1)
 
     typer.echo("Generating cards...\n")
-    cards = generator.generate_flashcards(topic, n_cards=n, top_k=top_k)
+    cards = generator.generate_flashcards(
+        topic, n_cards=n, top_k=top_k, course=course or None
+    )
 
     if not cards:
         typer.echo(
@@ -408,12 +443,20 @@ def review(
 def stats():
     """Print basic statistics about the current vector store.
 
-    Currently reports only the total number of stored chunks. Intended
-    as a quick post-ingestion check; richer breakdowns (per source, per
-    page range) can be added here without touching other modules.
+    Reports the total number of stored chunks and the breakdown per
+    course label, with material ingested without a course grouped
+    separately. Intended as a quick post-ingestion check; richer
+    breakdowns (per source, per page range) can be added here without
+    touching other modules.
     """
     store = VectorStore()
     typer.echo(f"Total chunks in DB: {store.count()}")
+
+    counts = store.courses()
+    if counts:
+        typer.echo("\nBy course:")
+        for label, n in sorted(counts.items()):
+            typer.echo(f"  {label or '(no course)'}: {n}")
 
 
 if __name__ == "__main__":

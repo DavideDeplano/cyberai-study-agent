@@ -186,9 +186,11 @@ class QuizGenerator:
         self.model = self.agent.model
         self.vectorstore = self.agent.vectorstore
 
-    def retrieve(self, topic: str, top_k: int) -> list[RetrievedChunk]:
+    def retrieve(
+        self, topic: str, top_k: int, course: str | None = None
+    ) -> list[RetrievedChunk]:
         """Fetch the chunks a generation call will be grounded in."""
-        return self.vectorstore.search(topic, top_k=top_k)
+        return self.vectorstore.search(topic, top_k=top_k, course=course)
 
     def generate(self, system_instruction: str, prompt: str) -> list[dict]:
         """Run one JSON-constrained generation call and decode the result."""
@@ -207,6 +209,7 @@ class QuizGenerator:
         topic: str,
         n_questions: int = 5,
         top_k: int = DEFAULT_TOP_K,
+        course: str | None = None,
     ) -> list[QuizQuestion]:
         """Build a multiple-choice quiz on a topic from the indexed material.
 
@@ -218,12 +221,13 @@ class QuizGenerator:
                 return fewer if the retrieved material does not support
                 that many, which is the intended behaviour.
             top_k: How many chunks to retrieve as grounding.
+            course: Restrict retrieval to one course label.
 
         Returns:
             The generated questions, possibly fewer than requested and
             possibly empty if the store holds nothing on the topic.
         """
-        chunks = self.retrieve(topic, top_k)
+        chunks = self.retrieve(topic, top_k, course)
         if not chunks:
             return []
 
@@ -258,6 +262,7 @@ class QuizGenerator:
         topic: str,
         n_cards: int = 10,
         top_k: int = DEFAULT_TOP_K,
+        course: str | None = None,
     ) -> list[Flashcard]:
         """Build a flashcard deck on a topic from the indexed material.
 
@@ -265,11 +270,11 @@ class QuizGenerator:
             topic: What to make cards about, used as the retrieval query.
             n_cards: How many cards to request; fewer may come back.
             top_k: How many chunks to retrieve as grounding.
-
+            course: Restrict retrieval to one course label.
         Returns:
             The generated cards, possibly empty if nothing was retrieved.
         """
-        chunks = self.retrieve(topic, top_k)
+        chunks = self.retrieve(topic, top_k, course)
         if not chunks:
             return []
 

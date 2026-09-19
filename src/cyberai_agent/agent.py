@@ -163,7 +163,7 @@ class StudyAgent:
             # its best with it.
             return question
 
-    def ask(self, question: str, top_k: int = 5) -> str:
+    def ask(self, question: str, top_k: int = 5, course: str | None = None) -> str:
         """Answer a question using retrieval-augmented generation.
 
         Pipeline:
@@ -184,6 +184,8 @@ class StudyAgent:
             top_k: Number of chunks to include in the prompt. Higher
                 values improve recall but enlarge the prompt and can
                 dilute focus.
+            course: Restrict retrieval to one course label. `None`
+                searches the whole store.
 
         Returns:
             The model's answer as plain text, with inline citations in
@@ -200,12 +202,14 @@ class StudyAgent:
             search_query = self._rewrite_query(question)
 
         # Step 2: retrieve using the standalone form of the question.
-        chunks = self.vectorstore.search(search_query, top_k=top_k)
+        chunks = self.vectorstore.search(search_query, top_k=top_k, course=course)
 
         if not chunks:
             answer = (
-                "No study materials found in the database. "
-                "Ingest some PDFs first."
+                f"No study materials found for course '{course}'."
+                if course
+                else "No study materials found in the database. "
+                    "Ingest some PDFs first."
             )
             # Still record the exchange so the transcript is faithful
             # even for degenerate turns.
