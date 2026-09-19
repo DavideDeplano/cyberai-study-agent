@@ -37,7 +37,7 @@ A Master's programme generates a large corpus of study material — dozens of PD
 
 ```
                 ┌─────────────┐
-     PDF  ────▶ │  ingest.py  │  ──▶ Chunk objects (text + source + page)
+     PDF  ────▶ │  ingest.py  │  ──▶ Chunk objects (text + source + page + course)
                 └─────────────┘
                        │
                        ▼
@@ -120,6 +120,10 @@ cyberai-agent ingest data/pdfs/ --course malware   # label the material
 
 Ingestion is idempotent: re-running it on the same file overwrites the previously stored chunks rather than duplicating them.
 
+`--course` attaches a label to every chunk of those PDFs, which the
+other commands can then filter on. Material ingested without it stays
+searchable, but only when no filter is applied.
+
 **Ask questions interactively**
 
 ```bash
@@ -177,10 +181,6 @@ Enter to reveal the answer, rate the recall 1-4 (Again, Hard, Good,
 Easy), and FSRS schedules the next occurrence. The deck is written after
 every card, so quitting with `q` never loses progress.
 
-`--course` attaches a label to every chunk of those PDFs, which the
-other commands can then filter on. Material ingested without it stays
-searchable, but only when no filter is applied.
-
 **Work on a single course**
 
 ```bash
@@ -231,7 +231,7 @@ cyberai-study-agent/
 │       └── cli.py             # Typer CLI entry point
 ├── data/
 │   ├── pdfs/                  # study PDFs (gitignored)
-│   └── chroma/                # persistent vector DB (gitignored)
+│   |── chroma/                # persistent vector DB (gitignored)
 │   └── review/                # saved flashcard deck (gitignored)
 ├── tests/
 ├── pyproject.toml
