@@ -115,6 +115,7 @@ Once installed, the package registers a `cyberai-agent` command with six subcomm
 cyberai-agent ingest data/pdfs/lecture01.pdf
 cyberai-agent ingest data/pdfs/                # every PDF in the directory
 cyberai-agent ingest file1.pdf file2.pdf       # multiple explicit files
+cyberai-agent ingest data/pdfs/ --course malware   # label the material
 ```
 
 Ingestion is idempotent: re-running it on the same file overwrites the previously stored chunks rather than duplicating them.
@@ -176,11 +177,32 @@ Enter to reveal the answer, rate the recall 1-4 (Again, Hard, Good,
 Easy), and FSRS schedules the next occurrence. The deck is written after
 every card, so quitting with `q` never loses progress.
 
+`--course` attaches a label to every chunk of those PDFs, which the
+other commands can then filter on. Material ingested without it stays
+searchable, but only when no filter is applied.
+
+**Work on a single course**
+
+```bash
+cyberai-agent chat --course malware
+cyberai-agent quiz "static analysis" --course malware
+cyberai-agent flashcards "sandboxing" --course malware
+```
+
+`--course` restricts retrieval to the chunks carrying that label, so a
+question is answered from one subject rather than from the whole
+library. Filtering happens in the vector store via metadata, not by
+post-filtering the results, so `--top-k` still returns that many chunks
+from within the course.
+
 **Inspect the index**
 
 ```bash
 cyberai-agent stats
 ```
+
+Prints the total number of indexed chunks and the breakdown per course,
+with material ingested without a label grouped separately.
 
 ## Design notes
 
@@ -227,7 +249,7 @@ Planned iterations, in rough priority order:
 - [x] Conversational memory (multi-turn context within a session, with automatic query rewriting)
 - [x] Quiz and flashcard generation from ingested material (CSV export for Anki)
 - [x] Spaced-repetition tracking (FSRS, via the `fsrs` package)
-- [ ] Per-course collections and metadata filtering at query time
+- [x] Per-course collections and metadata filtering at query time
 - [ ] Better chunking (token-based; semantic splitters for structured slides)
 - [ ] Optional local LLM backend via Ollama (fully offline mode)
 - [ ] Minimal web UI (Streamlit or FastAPI + HTMX)
