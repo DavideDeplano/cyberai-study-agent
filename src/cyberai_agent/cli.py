@@ -30,7 +30,7 @@ rest of the codebase and produces a decent `--help` output for free.
 from pathlib import Path
 import typer
 
-from cyberai_agent.ingest import ingest_pdf
+from cyberai_agent.ingest import MAX_TOKENS, ingest_pdf
 from cyberai_agent.vectorstore import VectorStore
 from cyberai_agent.agent import StudyAgent
 
@@ -52,10 +52,10 @@ def ingest(
         help="One or more PDF files or directories containing PDFs.",
     ),
     chunk_size: int = typer.Option(
-        500, help="Words per chunk during ingestion."
+        MAX_TOKENS, help="Tokens per chunk during ingestion."
     ),
     overlap: int = typer.Option(
-        50, help="Overlapping words between adjacent chunks."
+        64, help="Overlapping tokens between adjacent chunks."
     ),
     course: str = typer.Option(
         "", help="Course label attached to every chunk of these PDFs."
@@ -75,8 +75,8 @@ def ingest(
     Args:
         paths: PDF files or directories to ingest, validated by Typer to
             exist and be readable before the function body runs.
-        chunk_size: Forwarded to `ingest_pdf` (words per chunk).
-        overlap: Forwarded to `ingest_pdf` (overlap in words).
+        chunk_size: Forwarded to `ingest_pdf` (tokens per chunk).
+        overlap: Forwarded to `ingest_pdf` (overlap in tokens).
         course: Label stored with every chunk, used later to filter
             retrieval to a single subject.
     """

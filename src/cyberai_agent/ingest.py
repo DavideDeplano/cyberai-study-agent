@@ -10,6 +10,17 @@ from pathlib import Path
 from dataclasses import dataclass
 from pypdf import PdfReader
 
+from cyberai_agent.embeddings import DEFAULT_MODEL
+
+# Usable token budget per chunk. e5-base truncates at 512 tokens; the
+# margin covers the two special tokens and the `passage: ` prefix added
+# at embedding time.
+MAX_TOKENS = 480
+
+# Tokenizer cache: loading it is cheap but not free, and ingestion calls
+# `chunk_text` once per page.
+_TOKENIZER = None
+
 
 @dataclass
 class Chunk:
@@ -19,7 +30,7 @@ class Chunk:
         text: Raw text content of the chunk.
         source: Name of the source PDF file (e.g. "Cap3.1MalwareDetection.pdf").
         page: 1-indexed page number where the chunk originated.
-                chunk_id: Progressive index of the chunk within the source document.
+        chunk_id: Progressive index of the chunk within the source document.
             Combined with `source` it forms a unique identifier in the vector
             store: `f"{source}::{chunk_id}"`.
         course: Short label of the course the document belongs to, used to
@@ -58,44 +69,90 @@ def extract_pages(pdf_path: Path) -> list[tuple[int, str]]:
     return pages
 
 
-def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
-    """Split a text into word-based chunks with a sliding overlap.
+def get_tokenizer(model_name: str = DEFAULT_MODEL):
+    """Return the tokenizer of the embedding model, loading it once.
 
-    Chunking keeps each fragment small enough to be embedded meaningfully
-    by the sentence-transformer model (which has a limited context window).
+    Only the tokenizer is loaded, not the model weights, so ingestion
+    stays cheap: it is a few hundred kilobytes against the ~450 MB of
+    the full sentence-transformer.
+
+    Args:
+        model_name: Hugging Face id of the embedding model whose
+            tokenizer should be used. Must match the model used at
+            embedding time, or the token counts will not correspond.
+    """
+    global _TOKENIZER
+    if _TOKENIZER is None:
+        from transformers import AutoTokenizer
+
+        _TOKENIZER = AutoTokenizer.from_pretrained(model_name)
+    return _TOKENIZER
+
+
+def chunk_text(
+    text: str,
+    chunk_size: int = MAX_TOKENS,
+    overlap: int = 64,
+    tokenizer=None,
+) -> list[str]:
+    """Split a text into token-based chunks with a sliding overlap.
+
+    Chunks are measured in the embedding model's own tokens rather than
+    in words. The previous word-based split used 500 words, which is
+    roughly 650 tokens for this tokenizer: everything past the 512-token
+    limit of e5-base was silently truncated at embedding time and never
+    made it into the vector, so the tail of every long chunk was
+    effectively unsearchable.
+
     The overlap ensures that concepts spanning two chunks are preserved
     in at least one of them, reducing recall loss at chunk boundaries.
 
     Args:
         text: Text to split.
-        chunk_size: Number of words per chunk. Default 500 ≈ ~650 tokens,
-            comfortably under the 512-token limit of e5-base for most inputs.
-        overlap: Number of overlapping words between consecutive chunks.
-            Default 50 gives a 10% overlap.
+        chunk_size: Number of tokens per chunk. Defaults to the model's
+            usable budget, leaving room for the special tokens and the
+            `passage: ` prefix that `Embedder` prepends.
+        overlap: Number of overlapping tokens between consecutive
+            chunks. Default 64 gives roughly a 14% overlap.
+        tokenizer: Tokenizer to use. Defaults to the embedding model's
+            own; injectable so tests need not download anything.
 
     Returns:
-        List of chunk strings in original order. Empty input yields an empty list.
+        List of chunk strings in original order. Empty input yields an
+        empty list.
     """
-    words = text.split()
-    if not words:
+    # Normalise the whitespace PDF extraction leaves behind before
+    # counting tokens, so the count reflects real content.
+    text = " ".join(text.split())
+    if not text:
         return []
+    if overlap >= chunk_size:
+        raise ValueError("overlap must be smaller than chunk_size")
+
+    tokenizer = tokenizer or get_tokenizer()
+    # `add_special_tokens=False` keeps [CLS]/[SEP] out of the count:
+    # they are added later, at embedding time, and are accounted for
+    # by the margin baked into MAX_TOKENS.
+    ids = tokenizer.encode(text, add_special_tokens=False)
+    if len(ids) <= chunk_size:
+        return [text]
 
     chunks: list[str] = []
-    step = chunk_size - overlap  # how many words to advance between chunks
-    for start in range(0, len(words), step):
-        chunk = " ".join(words[start:start + chunk_size])
-        chunks.append(chunk)
-        # Stop once the current chunk has consumed the tail of the document,
-        # to avoid emitting a nearly-duplicate final chunk.
-        if start + chunk_size >= len(words):
+    step = chunk_size - overlap
+    for start in range(0, len(ids), step):
+        window = ids[start:start + chunk_size]
+        chunks.append(tokenizer.decode(window, skip_special_tokens=True).strip())
+        # Stop once the current chunk has consumed the tail of the
+        # document, to avoid emitting a nearly-duplicate final chunk.
+        if start + chunk_size >= len(ids):
             break
     return chunks
 
 
 def ingest_pdf(
     pdf_path: Path,
-    chunk_size: int = 500,
-    overlap: int = 50,
+    chunk_size: int = MAX_TOKENS,
+    overlap: int = 64,
     course: str = "",
 ) -> list[Chunk]:
     """Convert a PDF into a list of `Chunk` objects ready for embedding.

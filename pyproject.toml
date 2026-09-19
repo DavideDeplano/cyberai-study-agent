@@ -10,6 +10,7 @@ dependencies = [
     "pypdf",
     "chromadb",
     "sentence-transformers",
+    "transformers",
     "typer",
     "fsrs",
 ]
