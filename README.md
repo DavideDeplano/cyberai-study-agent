@@ -62,7 +62,7 @@ A Master's programme generates a large corpus of study material — dozens of PD
                        ▼
                 ┌─────────────┐
                 │   cli.py    │  ──▶ `cyberai-agent {ingest,chat,quiz,
-                └─────────────┘                      flashcards,stats}`
+                └─────────────┘                      flashcards,review,stats}`
 ```
 
 Each module has a single responsibility and can be exercised in isolation via its `__main__` block during development.
@@ -107,7 +107,7 @@ The first ingestion or chat command will download the embedding model (~450 MB) 
 
 ## Usage
 
-Once installed, the package registers a `cyberai-agent` command with five subcommands.
+Once installed, the package registers a `cyberai-agent` command with six subcommands.
 
 **Ingest study material**
 
@@ -162,6 +162,20 @@ support the requested number of items, fewer come back. That is
 deliberate — padding a deck means inventing material the PDFs do not
 cover, which is exactly what a study tool must not do.
 
+**Review the deck**
+
+```bash
+cyberai-agent flashcards "malware detection" --save   # add cards to the deck
+cyberai-agent review                                  # review what is due
+cyberai-agent review --limit 10                       # cap the session
+```
+
+`--save` stores the cards in `data/review/deck.json`, skipping fronts
+already in the deck. `review` then shows the cards that are due: press
+Enter to reveal the answer, rate the recall 1-4 (Again, Hard, Good,
+Easy), and FSRS schedules the next occurrence. The deck is written after
+every card, so quitting with `q` never loses progress.
+
 **Inspect the index**
 
 ```bash
@@ -191,10 +205,12 @@ cyberai-study-agent/
 │       ├── agent.py           # RAG loop + Gemini client
 │       ├── conversation.py    # multi-turn chat history
 │       ├── quiz.py            # quiz and flashcard generation
+│       ├── review.py          # FSRS spaced-repetition deck
 │       └── cli.py             # Typer CLI entry point
 ├── data/
 │   ├── pdfs/                  # study PDFs (gitignored)
 │   └── chroma/                # persistent vector DB (gitignored)
+│   └── review/                # saved flashcard deck (gitignored)
 ├── tests/
 ├── pyproject.toml
 ├── requirements.txt
@@ -210,7 +226,7 @@ Planned iterations, in rough priority order:
 
 - [x] Conversational memory (multi-turn context within a session, with automatic query rewriting)
 - [x] Quiz and flashcard generation from ingested material (CSV export for Anki)
-- [ ] Spaced-repetition tracking (SM-2 or FSRS)
+- [x] Spaced-repetition tracking (FSRS, via the `fsrs` package)
 - [ ] Per-course collections and metadata filtering at query time
 - [ ] Better chunking (token-based; semantic splitters for structured slides)
 - [ ] Optional local LLM backend via Ollama (fully offline mode)
