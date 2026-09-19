@@ -124,6 +124,10 @@ Ingestion is idempotent: re-running it on the same file overwrites the previousl
 other commands can then filter on. Material ingested without it stays
 searchable, but only when no filter is applied.
 
+`--chunk-size` and `--overlap` are measured in tokens of the embedding
+model, not in words: 480 and 64 by default, which keeps every chunk
+inside the 512-token window e5-base truncates at.
+
 **Ask questions interactively**
 
 ```bash
@@ -208,6 +212,7 @@ with material ingested without a label grouped separately.
 
 - **Grounding is enforced by the system prompt**, which instructs the model to answer strictly from the retrieved excerpts and to cite every claim as `[source, page N]`. Combined with an explicit permission to refuse, this sharply reduces hallucination compared to unconstrained generation.
 - **Chunking is page-aware**: text is split page by page rather than across the whole document, so every chunk retains an accurate page number that can be surfaced in citations.
+- **Chunks are measured in tokens, not words**: the split uses the embedding model's own tokenizer, so a chunk cannot exceed the 512-token window of e5-base. A word-based split of the same size overshot it, and everything past the limit was silently dropped at embedding time — present in the store, but absent from the vector it is searched by.
 - **The e5 embedding model uses asymmetric prefixes** (`passage: ` for documents, `query: ` for queries). Both are handled inside the `Embedder` wrapper so callers cannot forget them and degrade retrieval quality by accident.
 - **Chunk identity is deterministic**: the store key is `f"{source}::{chunk_id}"`, which makes upsert-based re-ingestion trivial and keeps ids stable across runs.
 - **The CLI amortises model loading**: `chat` builds the agent once and reuses it for every question, avoiding the 3–5-second embedding-model startup that dominates one-shot invocations used during development.
@@ -231,7 +236,7 @@ cyberai-study-agent/
 │       └── cli.py             # Typer CLI entry point
 ├── data/
 │   ├── pdfs/                  # study PDFs (gitignored)
-│   |── chroma/                # persistent vector DB (gitignored)
+│   ├── chroma/                # persistent vector DB (gitignored)
 │   └── review/                # saved flashcard deck (gitignored)
 ├── tests/
 ├── pyproject.toml
@@ -250,7 +255,8 @@ Planned iterations, in rough priority order:
 - [x] Quiz and flashcard generation from ingested material (CSV export for Anki)
 - [x] Spaced-repetition tracking (FSRS, via the `fsrs` package)
 - [x] Per-course collections and metadata filtering at query time
-- [ ] Better chunking (token-based; semantic splitters for structured slides)
+- [x] Better chunking (token-based, aligned to the embedding model's window)
+- [ ] Semantic splitters for structured slides
 - [ ] Optional local LLM backend via Ollama (fully offline mode)
 - [ ] Minimal web UI (Streamlit or FastAPI + HTMX)
 - [ ] Unit tests and CI via GitHub Actions
