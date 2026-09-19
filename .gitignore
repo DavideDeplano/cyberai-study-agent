@@ -9,3 +9,4 @@ data/chroma/
 *.egg-info/
 .pytest_cache/
 deck.csv
+data/review/

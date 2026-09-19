@@ -5,17 +5,22 @@ small, user-facing CLI built with Typer. It is the single entry point
 intended for day-to-day use, replacing the ad-hoc `python -m ...`
 invocations that individual modules expose only for development.
 
-Three subcommands are provided:
+Six subcommands are provided:
 
-* `ingest`  — Parse one or more PDFs (or directories of PDFs), chunk
-              their text, embed the chunks and upsert them into the
-              persistent vector database.
-* `chat`    — Start an interactive REPL. The embedding model and the
-              Gemini client are loaded once at startup and reused for
-              every question, avoiding the multi-second cold start that
-              affects the one-shot scripts used during development.
-* `stats`   — Print basic statistics about the current vector store,
-              useful as a quick sanity check after ingestion.
+* `ingest`     — Parse one or more PDFs (or directories of PDFs), chunk
+                 their text, embed the chunks and upsert them into the
+                 persistent vector database.
+* `chat`       — Start an interactive REPL. The embedding model and the
+                 Gemini client are loaded once at startup and reused for
+                 every question, avoiding the multi-second cold start that
+                 affects the one-shot scripts used during development.
+* `quiz`       — Generate multiple-choice questions on a topic.
+* `flashcards` — Generate a flashcard deck on a topic, optionally
+                 exporting it to CSV or saving it to the review deck.
+* `review`     — Review the saved flashcards that are due, scheduled
+                 with FSRS.
+* `stats`      — Print basic statistics about the current vector store,
+                 useful as a quick sanity check after ingestion.
 
 Typer was chosen over `argparse` because it derives the CLI schema from
 type hints, which keeps the command definitions close in style to the
@@ -260,6 +265,11 @@ def flashcards(
         "--csv",
         help="Write the deck to a CSV file (front,back,source,page).",
     ),
+    save: bool = typer.Option(
+        False,
+        "--save",
+        help="Add the cards to the spaced-repetition deck used by `review`.",
+    ),
 ):
     """Generate a flashcard deck on a topic from the ingested material.
 
@@ -272,6 +282,7 @@ def flashcards(
         n: How many cards to ask for.
         top_k: How many chunks to retrieve as grounding.
         csv: Destination file. If omitted, the deck is only printed.
+        save: Whether to add the cards to the review deck.
     """
     import csv as csv_module
 
@@ -310,6 +321,87 @@ def flashcards(
             for card in cards:
                 writer.writerow([card.front, card.back, card.source, card.page])
         typer.echo(f"{len(cards)} cards written to {csv}.")
+
+    if save:
+        from cyberai_agent.review import ReviewDeck
+
+        deck = ReviewDeck()
+        added = deck.add_flashcards(cards)
+        deck.save()
+        typer.echo(
+            f"{added} new cards added to the review deck "
+            f"({len(cards) - added} already present)."
+        )
+
+
+@app.command()
+def review(
+    limit: int = typer.Option(
+        20, help="Maximum number of cards to review in this session."
+    ),
+):
+    """Review the saved flashcards that are due today.
+
+    Each card shows its front; pressing Enter reveals the back, then the
+    recall is rated 1-4 (Again, Hard, Good, Easy) and FSRS schedules the
+    next review. The deck is saved after every card, so quitting midway
+    with `q` never loses progress.
+
+    Args:
+        limit: Cap on cards per session, to keep reviews short.
+    """
+    from fsrs import Rating
+
+    from cyberai_agent.review import ReviewDeck
+
+    deck = ReviewDeck()
+    if not deck.entries:
+        typer.echo(
+            "The review deck is empty. Run "
+            "`cyberai-agent flashcards <topic> --save` first."
+        )
+        raise typer.Exit()
+
+    due = deck.due()[:limit]
+    if not due:
+        typer.echo("No cards due. Come back later.")
+        raise typer.Exit()
+
+    ratings = {
+        "1": Rating.Again,
+        "2": Rating.Hard,
+        "3": Rating.Good,
+        "4": Rating.Easy,
+    }
+    reviewed = 0
+    for i, entry in enumerate(due, 1):
+        typer.echo(f"\n[{i}/{len(due)}] {entry.front}")
+        if typer.prompt(
+            "Enter to show the answer, q to quit",
+            default="", show_default=False,
+        ).strip().lower() == "q":
+            break
+        typer.echo(f"   {entry.back}")
+        typer.echo(f"   {entry.citation()}")
+
+        # Re-ask until the input is valid: a typo must not silently
+        # schedule the card with the wrong rating.
+        while True:
+            answer = typer.prompt(
+                "1 Again  2 Hard  3 Good  4 Easy  (q to quit)"
+            ).strip().lower()
+            if answer == "q" or answer in ratings:
+                break
+        if answer == "q":
+            break
+
+        deck.review(entry, ratings[answer])
+        deck.save()
+        reviewed += 1
+
+    typer.echo(
+        f"\n{reviewed} cards reviewed, {len(deck.due())} still due."
+    )
 
 
 @app.command()
